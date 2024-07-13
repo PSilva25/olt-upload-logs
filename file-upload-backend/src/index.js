@@ -148,17 +148,6 @@ app.post("/api/upload", async (req, res) => {
   }
 });
 
-// Rota para obter dados
-app.get("/api/data", async (req, res) => {
-  try {
-    const data = await Reg.findAll();
-    res.json(data);
-  } catch (err) {
-    console.error("Erro ao buscar dados:", err);
-    res.status(500).send("Erro ao buscar dados.");
-  }
-});
-
 // Rota para excluir dados
 app.delete("/api/data/:id", async (req, res) => {
   try {
@@ -181,6 +170,57 @@ app.get("/", (req, res) => {
     .send(
       "Tem calma que deu certo aqui...<br>Se quiser ver os dados, acesse /api/data"
     );
+});
+
+// Rota para obter dados com suporte a filtro e ordenação
+app.get("/api/data", async (req, res) => {
+  try {
+    // Parâmetros da query
+    const {
+      page = 1,
+      pageSize = 10,
+      sortField,
+      sortOrder,
+      searchText,
+    } = req.query;
+
+    // Opções para paginação
+    const options = {
+      offset: (parseInt(page) - 1) * parseInt(pageSize),
+      limit: parseInt(pageSize),
+    };
+
+    // Opções para ordenação
+    if (sortField && sortOrder) {
+      options.order = [[sortField, sortOrder === "ascend" ? "ASC" : "DESC"]];
+    }
+
+    // Opções para filtro de busca
+    const whereClause = {};
+
+    // Aplicar filtro de busca se houver texto de busca
+    if (searchText) {
+      whereClause[Sequelize.Op.or] = [
+        { olt: { [Sequelize.Op.like]: `%${searchText}%` } },
+        { slot: { [Sequelize.Op.like]: `%${searchText}%` } },
+        { port: { [Sequelize.Op.like]: `%${searchText}%` } },
+        { ont_id: { [Sequelize.Op.like]: `%${searchText}%` } },
+        { sn: { [Sequelize.Op.like]: `%${searchText}%` } },
+        { run_state: { [Sequelize.Op.like]: `%${searchText}%` } },
+      ];
+    }
+
+    // Consulta utilizando Sequelize
+    const data = await Reg.findAll({
+      ...options,
+      where: whereClause,
+    });
+
+    res.json(data);
+  } catch (err) {
+    console.error("Erro ao buscar dados:", err);
+    res.status(500).send("Erro ao buscar dados.");
+  }
 });
 
 // Iniciar o servidor

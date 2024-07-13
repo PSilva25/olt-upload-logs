@@ -1,6 +1,5 @@
 import React from "react";
-import { Layout, Menu } from "antd";
-import FileUpload from "./components/FileUpload";
+import { Layout } from "antd";
 import DataTable from "./components/DataTable";
 import "./App.css";
 
@@ -8,19 +7,15 @@ const { Header, Content, Footer } = Layout;
 
 const App = () => (
   <Layout className="layout">
-    <Header>
-      <div className="logo" />
-      <Menu theme="dark" mode="horizontal" defaultSelectedKeys={["1"]}>
-        <Menu.Item key="1">Upload</Menu.Item>
-      </Menu>
+    <Header style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+      <h1 style={{ color: "white" }}>Faça o upload do arquivo de log</h1>
     </Header>
-    <Content style={{ padding: "0 50px" }}>
+    <Content style={{ padding: "0 0px" }}>
       <div className="site-layout-content">
-        <FileUpload />
         <DataTable />
       </div>
     </Content>
-    <Footer style={{ textAlign: "center" }}>File Upload ©2024</Footer>
+    <Footer style={{ textAlign: "center" }}>Developed by: Rafael PSilva - File Upload ©2024</Footer>
   </Layout>
 );
 
