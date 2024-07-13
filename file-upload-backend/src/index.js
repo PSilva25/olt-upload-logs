@@ -1,96 +1,151 @@
+require('dotenv').config();
 const express = require('express');
 const fileUpload = require('express-fileupload');
 const fs = require('fs');
-const readline = require('readline');
-const Olt = require('./models/olt');
+const path = require('path');
+const Sequelize = require('sequelize');
+const cors = require('cors');
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-app.use(fileUpload());
-
-// Funções para tratar os diferentes tipos de arquivos
-const processHuaweiFile = async (filePath) => {
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
-
-  for await (const line of rl) {
-    const [olt, slot, port, ont_id, sn, run_state, config_state, match_state] = line.split(',');
-    await Olt.create({ olt, slot, port, ont_id, sn, run_state, config_state, match_state });
-  }
-};
-
-const processZteFile = async (filePath) => {
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
-
-  for await (const line of rl) {
-    const [olt, slot, port, ont_id, sn] = line.split(',');
-    await Olt.create({ olt, slot, port, ont_id, sn });
-  }
-};
-
-const processZteStateFile = async (filePath) => {
-  const fileStream = fs.createReadStream(filePath);
-  const rl = readline.createInterface({
-    input: fileStream,
-    crlfDelay: Infinity
-  });
-
-  for await (const line of rl) {
-    const [olt, slot, port, ont_id, sn, run_state, config_state, match_state] = line.split(',');
-    await Olt.create({ olt, slot, port, ont_id, sn, run_state, config_state, match_state });
-  }
-};
-
-// Rota para upload de arquivos
-app.post('/upload', async (req, res) => {
-  const fileType = req.body.fileType;
-  const file = req.files.file;
-
-  const filePath = `./uploads/${file.name}`;
-  file.mv(filePath, async (err) => {
-    if (err) {
-      return res.status(500).send(err);
-    }
-
-    try {
-      if (fileType === 'huawei') {
-        await processHuaweiFile(filePath);
-      } else if (fileType === 'zte') {
-        await processZteFile(filePath);
-      } else if (fileType === 'zte-state') {
-        await processZteStateFile(filePath);
-      }
-      res.send('File uploaded and processed successfully.');
-    } catch (error) {
-      console.error('Error processing file:', error);
-      res.status(500).send('Error processing file.');
-    } finally {
-      fs.unlinkSync(filePath); // Remove o arquivo após o processamento
-    }
-  });
+// Configurações do banco de dados
+const sequelize = new Sequelize(process.env.DB_DATABASE, process.env.DB_USERNAME, process.env.DB_PASSWORD, {
+  host: process.env.DB_HOST,
+  dialect: process.env.DB_DIALECT
 });
 
-// Rota para visualização dos dados
-app.get('/data', async (req, res) => {
+// Testar a conexão com o banco de dados
+sequelize.authenticate()
+  .then(() => console.log('Conexão com o banco de dados estabelecida com sucesso.'))
+  .catch(err => console.error('Não foi possível conectar ao banco de dados:', err));
+
+// Modelo reg
+const Reg = sequelize.define('Reg', {
+  olt: { type: Sequelize.STRING },
+  slot: { type: Sequelize.STRING },
+  port: { type: Sequelize.STRING },
+  ont_id: { type: Sequelize.STRING },
+  sn: { type: Sequelize.STRING },
+  run_state: { type: Sequelize.STRING },
+  config_state: { type: Sequelize.STRING },
+  match_state: { type: Sequelize.STRING }
+});
+
+// Sincronizar o modelo com o banco de dados
+Reg.sync();
+
+// Configurar middleware
+app.use(cors());
+app.use(express.static('public'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(fileUpload());
+
+// Rota de upload de arquivo
+app.post('/api/upload', async (req, res) => {
   try {
-    const data = await Olt.findAll();
+    if (!req.files || Object.keys(req.files).length === 0) {
+      return res.status(400).send('Nenhum arquivo foi enviado.');
+    }
+
+    const file = req.files.file;
+    const uploadPath = path.join(__dirname, '../inputs', file.name);
+
+    file.mv(uploadPath, async (err) => {
+      console.log(uploadPath);
+      if (err) {
+        console.error('Erro ao mover o arquivo:', err);
+        return res.status(500).send('Erro ao mover o arquivo.');
+      }
+
+      // Leitura e processamento do arquivo
+      try {
+        const lines = fs.readFileSync(uploadPath, 'utf-8').split(/\r?\n/);
+        const items = [];
+
+        function convertLineHuawei(line) {
+          const elements = line.split(' ').filter(e => e !== '');
+          return {
+            olt: 'Huawei',
+            slot: elements[1]?.split('/')[0],
+            port: elements[1]?.split('/')[1],
+            ont_id: elements[2],
+            sn: elements[3],
+            run_state: elements[5],
+            config_state: elements[6],
+            match_state: elements[7]
+          };
+        }
+
+        function convertLineZte(line) {
+          const elements = line.split(' ').filter(e => e !== '');
+          return {
+            olt: 'ZTE',
+            slot: elements[0].split(':')[0][11],
+            port: elements[0].split(':')[0][13],
+            ont_id: elements[0].split(':')[1],
+            sn: elements[3].split(':')[1],
+            run_state: elements[4],
+            config_state: '',
+            match_state: ''
+          };
+        }
+
+        function convertLineZteState(line) {
+          const elements = line.split(' ').filter(e => e !== '');
+          return {
+            olt: 'ZTE',
+            slot: elements[0].split(':')[0][2],
+            port: elements[0].split(':')[0][4],
+            ont_id: elements[0].split(':')[1],
+            sn: '',
+            run_state: elements[1],
+            config_state: elements[2],
+            match_state: elements[3]
+          };
+        }
+
+        const convertLine = (line) => {
+          if (file.name.includes('huawei')) return convertLineHuawei(line);
+          if (file.name.includes('state')) return convertLineZteState(line);
+          return convertLineZte(line);
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          try {
+            const item = convertLine(lines[i]);
+            await Reg.create(item);
+            items.push(item);
+          } catch (err) {
+            console.error('Erro ao processar linha:', err);
+          }
+        }
+
+        res.send('Arquivo enviado e processado com sucesso!');
+      } catch (err) {
+        console.error('Erro ao ler ou processar o arquivo:', err);
+        res.status(500).send('Erro ao ler ou processar o arquivo.');
+      }
+    });
+  } catch (err) {
+    console.error('Erro ao tratar a requisição de upload:', err);
+    res.status(500).send('Erro interno do servidor.');
+  }
+});
+
+// Rota para obter dados
+app.get('/api/data', async (req, res) => {
+  try {
+    const data = await Reg.findAll();
     res.json(data);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Erro ao buscar dados' });
+  } catch (err) {
+    console.error('Erro ao buscar dados:', err);
+    res.status(500).send('Erro ao buscar dados.');
   }
 });
 
 // Iniciar o servidor
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
