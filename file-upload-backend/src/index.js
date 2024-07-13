@@ -5,11 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const Sequelize = require("sequelize");
 const cors = require("cors");
+const { maxHeaderSize } = require("http");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configurações do banco de dados
 const sequelize = new Sequelize(
   process.env.DB_DATABASE,
   process.env.DB_USERNAME,
@@ -20,7 +20,6 @@ const sequelize = new Sequelize(
   }
 );
 
-// Testar a conexão com o banco de dados
 sequelize
   .authenticate()
   .then(() =>
@@ -30,7 +29,6 @@ sequelize
     console.error("Não foi possível conectar ao banco de dados:", err)
   );
 
-// Modelo reg
 const Reg = sequelize.define("Reg", {
   olt: { type: Sequelize.STRING },
   slot: { type: Sequelize.STRING },
@@ -42,17 +40,14 @@ const Reg = sequelize.define("Reg", {
   match_state: { type: Sequelize.STRING },
 });
 
-// Sincronizar o modelo com o banco de dados
 Reg.sync();
 
-// Configurar middleware
 app.use(cors());
 app.use(express.static("public"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
 
-// Funções de conversão de linha
 function convertLineHuawei(line) {
   const elements = line.split(" ").filter((e) => e !== "");
   return {
@@ -84,25 +79,31 @@ function convertLineZte(line) {
 function convertLineZteState(line) {
   const elements = line.split(" ").filter((e) => e !== "");
   return {
-    olt: "ZTE",
+    olt: "ZTE State",
     slot: elements[0]?.split(":")[0][2],
     port: elements[0]?.split(":")[0][4],
     ont_id: elements[0]?.split(":")[1],
     sn: "",
-    run_state: elements[1],
+    run_state: elements[3],
     config_state: elements[2],
     match_state: elements[3],
   };
 }
 
-// Função para escolher a função de conversão correta com base no nome do arquivo
 const convertLine = (line, filename) => {
-  if (filename.includes("huawei")) return convertLineHuawei(line);
-  if (filename.includes("state")) return convertLineZteState(line);
+  const normalizedFilename = filename.toLowerCase();
+
+  if (normalizedFilename.includes("huawei")) return convertLineHuawei(line);
+  if (
+    normalizedFilename.includes("zte") &&
+    normalizedFilename.includes("state")
+  )
+    return convertLineZteState(line);
+  if (normalizedFilename.includes("zte")) return convertLineZte(line);
+
   return convertLineZte(line);
 };
 
-// Rota de upload de arquivo
 app.post("/api/upload", async (req, res) => {
   try {
     if (!req.files || Object.keys(req.files).length === 0) {
@@ -119,7 +120,6 @@ app.post("/api/upload", async (req, res) => {
         return res.status(500).send("Erro ao mover o arquivo.");
       }
 
-      // Leitura e processamento do arquivo
       try {
         const lines = fs.readFileSync(uploadPath, "utf-8").split(/\r?\n/);
         const items = [];
@@ -127,6 +127,9 @@ app.post("/api/upload", async (req, res) => {
         for (let i = 0; i < lines.length; i++) {
           try {
             const item = convertLine(lines[i], file.name);
+            if (item.sn.includes("@virtex.com")) {
+              break;
+            }
             if (item.slot && item.port && item.ont_id) {
               await Reg.create(item);
               items.push(item);
@@ -148,7 +151,6 @@ app.post("/api/upload", async (req, res) => {
   }
 });
 
-// Rota para excluir dados
 app.delete("/api/data/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -164,6 +166,27 @@ app.delete("/api/data/:id", async (req, res) => {
   }
 });
 
+app.post("/api/data/batch-delete", async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!ids || ids.length === 0) {
+      return res.status(400).send("Nenhum ID fornecido para exclusão.");
+    }
+
+    await Reg.destroy({
+      where: {
+        id: ids,
+      },
+    });
+
+    res.send("Registros excluídos com sucesso.");
+  } catch (err) {
+    console.error("Erro ao excluir registros:", err);
+    res.status(500).send("Erro ao excluir registros.");
+  }
+});
+
 app.get("/", (req, res) => {
   res
     .status(200)
@@ -172,33 +195,30 @@ app.get("/", (req, res) => {
     );
 });
 
-// Rota para obter dados com suporte a filtro e ordenação
 app.get("/api/data", async (req, res) => {
   try {
-    // Parâmetros da query
     const {
       page = 1,
-      pageSize = 10,
+      pageSize = maxHeaderSize,
       sortField,
       sortOrder,
       searchText,
+      olt = [],
+      slot = [],
+      port = [],
     } = req.query;
 
-    // Opções para paginação
     const options = {
       offset: (parseInt(page) - 1) * parseInt(pageSize),
       limit: parseInt(pageSize),
     };
 
-    // Opções para ordenação
     if (sortField && sortOrder) {
       options.order = [[sortField, sortOrder === "ascend" ? "ASC" : "DESC"]];
     }
 
-    // Opções para filtro de busca
     const whereClause = {};
 
-    // Aplicar filtro de busca se houver texto de busca
     if (searchText) {
       whereClause[Sequelize.Op.or] = [
         { olt: { [Sequelize.Op.like]: `%${searchText}%` } },
@@ -210,20 +230,56 @@ app.get("/api/data", async (req, res) => {
       ];
     }
 
-    // Consulta utilizando Sequelize
-    const data = await Reg.findAll({
+    if (olt.length > 0) {
+      whereClause.olt = { [Sequelize.Op.in]: olt };
+    }
+    if (slot.length > 0) {
+      whereClause.slot = { [Sequelize.Op.in]: slot };
+    }
+    if (port.length > 0) {
+      whereClause.port = { [Sequelize.Op.in]: port };
+    }
+
+    const data = await Reg.findAndCountAll({
       ...options,
       where: whereClause,
     });
 
-    res.json(data);
+    res.json({
+      data: data.rows,
+      total: data.count,
+    });
   } catch (err) {
     console.error("Erro ao buscar dados:", err);
     res.status(500).send("Erro ao buscar dados.");
   }
 });
 
-// Iniciar o servidor
+app.get("/api/filters", async (req, res) => {
+  try {
+    const olts = await Reg.findAll({
+      attributes: [[Sequelize.fn("DISTINCT", Sequelize.col("olt")), "olt"]],
+    });
+
+    const slots = await Reg.findAll({
+      attributes: [[Sequelize.fn("DISTINCT", Sequelize.col("slot")), "slot"]],
+    });
+
+    const ports = await Reg.findAll({
+      attributes: [[Sequelize.fn("DISTINCT", Sequelize.col("port")), "port"]],
+    });
+
+    res.json({
+      olts: olts.map((item) => item.olt),
+      slots: slots.map((item) => item.slot),
+      ports: ports.map((item) => item.port),
+    });
+  } catch (err) {
+    console.error("Erro ao buscar filtros:", err);
+    res.status(500).send("Erro ao buscar filtros.");
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
