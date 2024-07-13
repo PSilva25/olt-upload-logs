@@ -18,9 +18,9 @@ const FileUpload = () => {
           "Content-Type": "multipart/form-data",
         },
       });
-      message.success("Upload successful");
+      message.success("Deu certo o upload");
     } catch (error) {
-      message.error("Upload failed");
+      message.error("Falha no upload");
     }
   };
 
@@ -38,13 +38,13 @@ const FileUpload = () => {
   return (
     <div>
       <Upload {...props}>
-        <Button icon={<UploadOutlined />}>Select File</Button>
+        <Button icon={<UploadOutlined />}>Selecione o arquivo</Button>
       </Upload>
       <Button
         type="primary"
         onClick={handleUpload}
         disabled={fileList.length === 0}
-        style={{ marginTop: 16 }}
+        style={{ marginTop: 16, marginBottom: 16 }}
       >
         Upload
       </Button>

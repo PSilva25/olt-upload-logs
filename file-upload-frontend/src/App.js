@@ -12,7 +12,6 @@ const App = () => (
       <div className="logo" />
       <Menu theme="dark" mode="horizontal" defaultSelectedKeys={["1"]}>
         <Menu.Item key="1">Upload</Menu.Item>
-        <Menu.Item key="2">Data</Menu.Item>
       </Menu>
     </Header>
     <Content style={{ padding: "0 50px" }}>
