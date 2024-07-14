@@ -52,6 +52,25 @@ PORT=3000</code></pre>
 
 <p>Substitua os valores acima pelos detalhes específicos do seu ambiente (nome de usuário, senha, nome do banco de dados, host, etc.). Essas variáveis serão utilizadas pelo seu aplicativo Node.js para se conectar ao banco de dados PostgreSQL.</p>
 
+<h3>4. Criação do Banco Local</h3>
+<p>Para criar a tabela no banco PostgreSQL, pode-se usar o script</p>
+
+<pre><code>CREATE TABLE Regs (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    olt VARCHAR(255) NULL,
+    slot VARCHAR(255) NULL,
+    port VARCHAR(255) NULL,
+    ont_id VARCHAR(255) NULL,
+    sn VARCHAR(255) NULL,
+    run_state VARCHAR(255) NULL,
+    config_state VARCHAR(255) NULL,
+    match_state VARCHAR(255) NULL,
+    createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);</code></pre>
+
+<p>Substitua os valores acima pelos detalhes específicos do seu ambiente (nome de usuário, senha, nome do banco de dados, host, etc.). Essas variáveis serão utilizadas pelo seu aplicativo Node.js para se conectar ao banco de dados PostgreSQL.</p>
+
 <h2>Executando o Projeto</h2>
 
 <h3>Backend (Node.js)</h3>
